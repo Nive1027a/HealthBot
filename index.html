@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <title> HealthBot </title>
+    <style>
+        
+        body { margin: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f5f6fb; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+        .navbar { background: linear-gradient(90deg, #a64bf4, #ff2f92, #2f80ff); color: white; padding: 15px; font-size: 20px; font-weight: bold; display: flex; align-items: center; }
+        .menu-btn { font-size: 24px; cursor: pointer; margin-right: 15px; }
+        
+        .sidebar { position: fixed; top: 0; left: -300px; width: 280px; height: 100%; background: white; box-shadow: 2px 0 15px rgba(0,0,0,0.2); padding: 20px; transition: 0.35s; z-index: 1000; overflow-y: auto; }
+        .sidebar.active { left: 0; }
+        .sidebar h3 { margin-top: 25px; color: #333; border-bottom: 1px solid #eee; padding-bottom: 5px; }
+        
+        .progress { height: 10px; background: #eee; border-radius: 10px; overflow: hidden; margin-top: 8px; }
+        .progress-fill { height: 100%; background: #a64bf4; width: 0%; transition: width 0.3s; }
+        
+        button { padding: 10px; margin-top: 10px; border: none; border-radius: 6px; background: #a64bf4; color: white; cursor: pointer; width: 100%; font-weight: bold; }
+        button:hover { opacity: 0.9; }
+
+        .chat-container { flex: 1; padding: 20px; overflow-y: auto; display: flex; flex-direction: column; }
+        .message { max-width: 75%; padding: 12px; margin: 8px; border-radius: 15px; font-size: 15px; line-height: 1.4; }
+        .user { align-self: flex-end; background: #a64bf4; color: white; border-bottom-right-radius: 2px; }
+        .bot { align-self: flex-start; background: #e6e8ff; color: #333; border-bottom-left-radius: 2px; }
+
+        .message table { border-collapse: collapse; width: 100%; margin-top: 10px; background: white; font-size: 13px; color: black; }
+        .message th, .message td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        .message th { background-color: #f2f2f2; font-weight: bold; }
+
+        .input-area { display: flex; padding: 15px; background: white; border-top: 1px solid #ddd; }
+        .input-area input { flex: 1; padding: 12px; border-radius: 8px; border: 1px solid #ccc; outline: none; }
+        .input-area button { margin: 0 0 0 10px; width: 100px; background: #ff2f92; }
+
+        .overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.4); display: none; z-index: 500; }
+        .overlay.active { display: block; }
+    </style>
+</head>
+<body>
+
+    <div class="navbar">
+        <span class="menu-btn" onclick="openSidebar()">☰</span>
+        🩺 HealthBot ❤️
+    </div>
+
+    <div class="sidebar" id="sidebar">
+        
+        <h3>💧 Water Tracker</h3>
+        <p id="waterText">0 / 8 glasses</p>
+        <div class="progress"><div class="progress-fill" id="waterBar"></div></div>
+        <button onclick="drinkWater()">Drink Water</button>
+
+        <h3>🚶 Step Tracker</h3>
+        <p id="stepsText">0 / 10000 steps</p>
+        <div class="progress"><div class="progress-fill" id="stepBar"></div></div>
+        <button onclick="addSteps()">Add 500 Steps</button>
+
+        <h3>📜 Options</h3>
+        <button onclick="loadHistory()" style="background:#2f80ff;">Load History</button>
+        <button onclick="startNewChat()" style="background:#ff2f92;">Clear Screen</button>
+        <button onclick="closeSidebar()" style="background:#666; margin-bottom:20px;">Close Menu</button>
+    </div>
+
+    <div class="overlay" id="overlay" onclick="closeSidebar()"></div>
+    <div class="chat-container" id="chat">
+        <div class="message bot">Hello! How can I help you with your health today?</div>
+    </div>
+
+    <div class="input-area">
+        <input id="messageInput" placeholder="Ask a health question...">
+        <button onclick="sendMessage()">Send</button>
+    </div>
+
+    <script>
+        // Sidebar Controls
+        function openSidebar() { document.getElementById("sidebar").classList.add("active"); document.getElementById("overlay").classList.add("active"); }
+        function closeSidebar() { document.getElementById("sidebar").classList.remove("active"); document.getElementById("overlay").classList.remove("active"); }
+
+        // Trackers
+        let water = 0;
+        function drinkWater() { if(water < 8) water++; document.getElementById("waterText").innerText = `${water} / 8 glasses`; document.getElementById("waterBar").style.width = (water/8)*100 + "%"; }
+        let steps = 0;
+        function addSteps() { steps += 500; document.getElementById("stepsText").innerText = `${steps} / 10000 steps`; let p = (steps/10000)*100; document.getElementById("stepBar").style.width = (p > 100 ? 100 : p) + "%"; }
+
+        // Case Formatting helper
+        function toSentenceCase(text) {
+            if (!text) return "";
+            let t = text.trim().toLowerCase();
+            return t.charAt(0).toUpperCase() + t.slice(1);
+        }
+
+        // Add Message with Markdown Support
+        function addMessage(text, type) {
+            const chat = document.getElementById("chat");
+            const msg = document.createElement("div");
+            msg.className = "message " + type;
+            if (type === "bot") {
+                msg.innerHTML = marked.parse(text); 
+            } else {
+                msg.innerText = text;
+            }
+            chat.appendChild(msg);
+            if (type === "user") {
+               chat.scrollTop = chat.scrollHeight;
+            } else {
+               msg.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+           }
+
+        // Send Message Logic
+        async function sendMessage() {
+            const input = document.getElementById("messageInput");
+            const rawText = input.value.trim();
+            if(!rawText) return;
+
+            const formattedText = toSentenceCase(rawText);
+            addMessage(formattedText, "user");
+            input.value = "";
+
+            const typingMsg = document.createElement("div");
+            typingMsg.className = "message bot";
+            typingMsg.innerText = "Typing...";
+            typingMsg.id = "typing-indicator";
+            document.getElementById("chat").appendChild(typingMsg);
+
+            try {
+                const res = await fetch("/chat", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ message: formattedText })
+                });
+                const data = await res.json();
+                document.getElementById("typing-indicator").remove();
+                addMessage(data.response, "bot");
+            } catch (err) {
+                document.getElementById("typing-indicator").innerText = "Error connecting to server.";
+            }
+        }
+
+        async function loadHistory() {
+            const res = await fetch("/history");
+            const data = await res.json();
+            const chat = document.getElementById("chat");
+            chat.innerHTML = ""; 
+            data.reverse().forEach(row => {
+                addMessage(row[0], "user");
+                addMessage(row[1], "bot");
+            });
+            closeSidebar();
+        }
+
+        function startNewChat() {
+            document.getElementById("chat").innerHTML = '<div class="message bot">Hello! How can I help you today?</div>';
+            closeSidebar();
+        }
+
+        // Live Listeners
+        document.getElementById("messageInput").addEventListener("keypress", (e) => { if(e.key === "Enter") sendMessage(); });
+        document.getElementById("messageInput").addEventListener("input", function() {
+            if (this.value.length > 0) {
+                this.value = this.value.charAt(0).toUpperCase() + this.value.slice(1);
+            }
+        });
+    </script>
+</body>
+</html>
